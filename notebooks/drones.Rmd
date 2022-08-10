@@ -1,0 +1,713 @@
+---
+title: "Drones"
+author:
+- name: Jill Walker Rettberg
+  affiliation: University of Bergen
+date: "`r format(Sys.time(), '%d %B,  %Y')`"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: no
+    code_folding: hide
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+keywords: humanities, digital humanities, drones, machine vision
+
+---
+
+How are drones portrayed in contemporary art and fiction? This paper uses data from a dataset that documents and analyses representations of machine vision technologies in 500 creative works, including digital artworks, video games and science fiction novels and movies.
+
+## To do:
+
+-   check whether some verbs are only used with one technology. Could do a boxplot?
+-   GROUP verbs - either using clustering from other script, or manually. Colour by group.
+-   What sentiments and topics are typically used with drones? Any other characteristics of the creative works?
+-   Timeline?
+-   Do characters who are in a situation with drones have particular traits? To find out, I need to figure out how to identify characters that are in a situation that ALSO has drones in it. Do I group by SituationID - and then what?
+
+```{r setup, message= FALSE}
+
+
+suppressMessages(library(tidyverse))
+
+# The following may be more than needed - it's from machinevisionscripts.R.
+
+CreativeWorks <- read_csv("../data/creativeworks.csv",
+                          locale = locale(encoding = "UTF-8"),
+        col_types = cols(
+                WorkID = col_integer(),
+                WorkTitle = col_character(),
+                Sentiment = col_factor(levels = c(
+                        "Exciting", "Flawed", "Helpful", "Neutral", "Wondrous",
+                        "Hostile","Oppressive", "Alien", "Creepy", "Subversive", 
+                        "Dangerous",  "Intrusive", "Empowering", "Protective", 
+                        "Intimate", "Misleading", "Fun", "Overwhelming", 
+                        "Prosocial", "Disgusting")),
+                Topic = col_factor(levels = c(
+                        "Nudity", "Social Media", "Romantic relationship", "Climate Change", 
+                        "Dystopian", "Horror", "Robots/androids", "Surveillance", "Automation", 
+                        "City", "Labour", "War", "Identity", "AI", "Animals", "Consciousness", 
+                        "Nature", "Companionship", "Competition", "Playful", "Family", 
+                        "Free will", "Physical violence", "Crime", "Hacking", "Conflict", 
+                        "Empathy", "Utopian", "Race", "Sex", "Cyborgs", "Inequality", 
+                        "Economy", "Grief", "Autonomous vehicles", "Gender")),
+                TechRef= col_factor(levels = c(
+                        "Holograms", "Augmented reality", "Ocular implant", 
+                        "Emotion recognition", "Surveillance cameras", "AI", 
+                        "Virtual reality", "Motion tracking", "Body scans", 
+                        "Drones", "MicroscopeOrTelescope", "Biometrics", 
+                        "Image generation", "Facial recognition", 
+                        "Object recognition",  "3D scans", "Machine learning", 
+                        "Filtering", "Deepfake", "Camera",  "Cameraphone", 
+                        "Interactive panoramas", "Non-Visible Spectrum", "UGV",
+                        "Webcams", "Satellite images")),
+                TechUsed= col_factor(levels = c(
+                        "Holograms", "Augmented reality", "Ocular implant", 
+                        "Emotion recognition", "Surveillance cameras", "AI", 
+                        "Virtual reality", "Motion tracking", "Body scans", 
+                        "Drones", "MicroscopeOrTelescope", "Biometrics", 
+                        "Image generation", "Facial recognition", 
+                        "Object recognition",  "3D scans", "Machine learning", 
+                        "Filtering", "Deepfake", "Camera",  "Cameraphone", 
+                        "Interactive panoramas", "Non-Visible Spectrum", "UGV",
+                        "Webcams", "Satellite images"))))
+
+
+# Import characters.csv ---------------------------------------------------
+
+Orig_Characters <- read_csv("../data/characters.csv",
+                       locale = locale(encoding = "UTF-8"),
+        col_types = cols(
+                CharacterID = col_integer(),
+                Character = col_character(),
+                Species = col_factor(levels = c(
+                        "Animal", "Cyborg", "Fictional", 
+                        "Human", "Machine", "Unknown")),
+                Gender = col_factor(levels = c(
+                        "Female","Male","Non-binary or Other", "Trans Woman",
+                        "Unknown")),
+                RaceOrEthnicity = col_factor(levels = c(
+                        "Asian", "Black", "Person of Colour", "White", 
+                        "Immigrant", "Indigenous", "Complex", "Unknown")),
+                Age = col_factor(levels = c(
+                        "Child", "Young Adult", "Adult", "Elderly", 
+                        "Unknown"),
+                        ordered = TRUE),
+                Sexuality = col_factor(levels = c(
+                        "Homosexual", "Heterosexual", "Bi-sexual", "Other",
+                        "Unknown")),
+                IsGroup = col_logical(),
+                IsCustomizable = col_logical()
+        )
+)
+
+
+# Simplify character traits -----------------------------------------------
+
+# Change some of the variables to simplify for analysis. This example merges 
+# black, person of colour, indigenous, immigrant and complex into one category:
+# PoC, and merges machines and cyborgs into a value called Robot. Since our
+# categories for race and ethnicity do not follow the specific demographic 
+# categories of a country, and there are very few cases of some of the values 
+# like indigenous), for some analyses combining categories will be better. 
+# The code can easily be adapted to combine or rename categories differently.
+# 
+# Format here is:
+# mutate(New_column_name = recode(Old_column_name, "New value" = "Old value"))
+# 
+# Could remove customizable characters with this line:
+#         filter(IsCustomizable == FALSE) %>% 
+# 
+# Convert "Unknown" values to NA. 
+# 
+# Select relevant columns.
+
+Characters <- Orig_Characters %>% 
+        na_if("Unknown") %>% 
+        select(Character, Species, Gender, Sexuality, 
+               RaceOrEthnicity, Age) %>% 
+        mutate(RaceOrEthnicity = recode(RaceOrEthnicity,  
+                                        "Asian" = "Asian", 
+                                        "Black" = "PoC", 
+                                        "White" = "White", 
+                                        "Person of Colour" = "PoC",
+                                        "Indigenous" = "PoC",
+                                        "Immigrant" = "PoC",
+                                        "Complex"  = "PoC")) %>% 
+        mutate(Species = recode(Species,
+                                "Human" = "Human",
+                                "Machine" = "Robot",
+                                "Cyborg" = "Robot",
+                                "Fictional" = "Fictional",
+                                "Animal" = "Animal"))
+
+
+# Load situations.csv -----------------------------------------------------
+
+Situations <- read_csv("../data/situations.csv",
+                       locale = locale(encoding = "UTF-8"),
+                       col_types = cols(
+                                SituationID = col_integer(),
+                                Situation = col_character(), 
+                                Genre = col_character(),
+                                Character = col_character(),
+                                Entity = col_character(),
+                                Technology = col_character(),
+                                Verb = col_character()
+                                )
+                       )
+
+
+# Merge characters.csv with situations.csv to see character actions -------
+
+# Make a new dataframe called Verbs that shows all characters with their traits 
+# (species, age etc), what situations they are in and what actions they take
+# when interacting with machine vision.
+
+Character_verbs <- merge(Situations, Characters, by = "Character", all = TRUE)
+
+
+# Contingency tables  -----------------------------------------------------
+
+# The following scripts transform Verbs into contingency tables where each row 
+# contains one verb and the number of times it is used in each of the genres (art, 
+# games, narratives) and who or what uses it. A new column has also been added 
+# which is TRUE if the verb is active (ends in -ing) and FALSE if it is passive
+# (ends in -ed).
+#
+TechRefxSentiments_contingency <- CreativeWorks %>% 
+        filter(!is.na(TechRef)) %>% 
+        select(WorkID, TechRef, Sentiment) %>% 
+        distinct() %>% 
+        select(-WorkID) %>% 
+        pivot_longer(cols= -TechRef     ,
+                     names_to = "variable", 
+                     values_to = "value") %>%
+        group_by(TechRef, value) %>%
+        summarise(n=n()) %>% 
+        pivot_wider(names_from = "TechRef", values_from = "n") %>% 
+        mutate_all(~replace(., is.na(.), 0))  # convert NA to 0 since it's count 
+
+
+
+
+```
+
+## What are the most common verbs for the most common machine vision technologies?
+
+The next bit is code working on how to display data about a specific technology.
+
+```{r tech_code, fig.width=10}
+
+
+Situations %>% 
+        filter(!is.na(Technology)) %>% 
+        select(SituationID, Genre, Technology, Verb) %>%
+        group_by(Technology) %>% 
+        add_count(Verb, name = "VerbCount") %>% 
+        add_count(Technology, name = "TechCount") %>% 
+        mutate(VerbTense = case_when(str_detect(Verb, "ing") ~ "Active",
+                                     TRUE ~ "Passive")) %>% 
+        filter(VerbCount > 5 & TechCount >200) %>% 
+        ggplot(aes(x=fct_infreq(Verb), fill = VerbTense)) +
+        geom_bar() +
+        labs(fill="", 
+             title ="What do different technologies do in machine vision situations?",
+             subtitle = "Includes technologies that are involved in more than 200 interactions and verbs used more than 5 times",
+             caption = "Based on Rettberg et.al. 2022. A Dataset Documenting Representations of Machine Vision Technologies in Artworks, Games and Narratives. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        coord_flip() +
+        facet_wrap(~fct_infreq(Technology), scales="free_y")
+
+
+
+```
+
+## List of nine techs with most verbs
+
+```{r}
+tech <- Situations %>% 
+        filter(!is.na(Technology)) %>% 
+        select(SituationID, Genre, Technology, Verb) %>%
+        group_by(Technology) %>% 
+        add_count(Verb, name = "VerbCount") %>% 
+        add_count(Technology, name = "TechCount") %>% 
+        mutate(VerbTense = case_when(str_detect(Verb, "ing") ~ "Active",
+                                     TRUE ~ "Passive")) %>% 
+        filter(VerbCount > 5 & TechCount >200)
+        
+
+PopTech <- unique(tech$Technology)
+
+```
+
+## Looking just at drones.
+
+```{r drones}
+
+Situations %>% 
+        filter(Technology == "Drones" & !is.na(Verb)) %>% 
+        select(SituationID, Genre, Technology, Verb) %>%
+        add_count(Verb, name = "VerbCount") %>% 
+        mutate(VerbTense = case_when(str_detect(Verb, "ing") ~ "Active",
+                                     TRUE ~ "Passive")) %>% 
+        filter(VerbCount > 2) %>% 
+        ggplot(aes(x=fct_infreq(Verb), fill = VerbTense)) +
+        geom_bar() +
+        labs(fill="", 
+             title ="What do drones do in machine vision situations?",
+             subtitle = "Includes verbs used three or more times. Based on data on 500 artworks, games and narratives",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) 
+
+```
+
+## 
+
+## Does genre affect how drones are portrayed?
+
+```{r}
+
+Situations %>% 
+        filter(Technology == "Drones" & !is.na(Verb)) %>% 
+        select(SituationID, Genre, Technology, Verb) %>%
+        add_count(Verb, name = "VerbCount") %>% 
+        mutate(VerbTense = case_when(str_detect(Verb, "ing") ~ "Active",
+                                     TRUE ~ "Passive")) %>% 
+        filter(VerbCount > 2) %>% 
+        ggplot(aes(x=fct_infreq(Verb), fill = VerbTense)) +
+        geom_bar() +
+        labs(fill="", 
+             title ="What do drones do in machine vision situations?",
+             subtitle = "Includes verbs used three or more times. Based on data on 500 artworks, games and narratives",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+        coord_flip() +
+        facet_wrap(~Genre)
+
+```
+
+## What characterises creative works with drones? 
+
+```{r works_analysis}
+
+#Find the techs that use drones. 
+
+Sentiments_by_freq <- CreativeWorks %>% 
+        select(WorkID, Sentiment) %>% 
+        filter(!is.na(Sentiment)) %>% 
+        distinct() %>% 
+        count(Sentiment, sort = TRUE) %>% 
+        slice(1:18)
+        
+
+CreativeWorks %>% 
+        filter(TechRef %in% PopTech) %>% 
+        select(WorkID, TechRef, Sentiment, Genre) %>% 
+        filter(!is.na(Sentiment)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Sentiment), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What sentiments correlate with the most common technologies?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1, size = 3)) +
+
+        #coord_flip() +
+        facet_wrap(~TechRef)
+
+```
+
+## Sentiments 
+
+```{r sentiments_drones}
+CreativeWorks %>% 
+        filter(TechRef=="Drones") %>% 
+        select(WorkID, Sentiment, Genre) %>% 
+        filter(!is.na(Sentiment)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Sentiment), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What sentiments are expressed towards machine vision in works about drones?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) 
+        #coord_flip() +
+        #facet_wrap(~TechRef)
+```
+
+While helpful is the most common sentiment overall, works with drones are more oppressive and intrusive.
+
+```{r sentiments_all_works}
+CreativeWorks %>% 
+        select(WorkID, Sentiment, Genre) %>% 
+        filter(!is.na(Sentiment)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Sentiment), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What sentiments are most common overall?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) 
+```
+
+## Grouping sentiments
+```{r sentiments_grouping}
+
+# Group sentiments
+Helpful <- c("Helpful", "Empowering", "Protective", "Prosocial")
+Fun <- c("Fun", "Wondrous", "Exciting")
+Flawed <- c("Flawed", "Misleading")
+Hostile <- c("Hostile", "Intrusive", "Oppressive", "Dangerous", "Overwhelmning")
+Alien <- c("Alien", "Creepy", "Disgusting")
+Intimate <- c("Intimate")
+
+Sentiments_by_freq %>% 
+        mutate(SentimentGroup = case_when(Sentiment %in% Helpful ~ "Helpful",
+                                          Sentiment %in% Fun ~ "Fun",
+                                          Sentiment %in% Flawed ~ "Flawed",
+                                          Sentiment %in% Hostile ~ "Hostile",
+                                          Sentiment %in% Alien ~ "Alien",
+                                          Sentiment %in% Intimate ~ "Intimate",
+                                          TRUE ~ "Other")) %>% 
+        left_join(CreativeWorks) %>% 
+        select(WorkID, SentimentGroup, Genre, TechRef) %>% 
+        filter(TechRef %in% PopTech) %>% 
+        filter(!is.na(SentimentGroup),
+               SentimentGroup != "Other") %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_rev(fct_infreq(SentimentGroup)), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What sentiments are expressed towards machine vision in works about drones?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 9)) +
+        coord_flip() +
+        facet_wrap(~TechRef)
+        
+
+```
+
+
+# Topics
+Topics more likely to be associated with drones
+
+```{r}
+CreativeWorks %>% 
+        filter(TechRef=="Drones") %>% 
+        select(WorkID, Topic, Genre) %>% 
+        filter(!is.na(Topic)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Topic), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What topics are most common in works about drones?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) 
+        #coord_flip() +
+        #facet_wrap(~TechRef)
+```
+
+```{r}
+CreativeWorks %>% 
+        filter(TechRef %in% PopTech) %>% 
+        select(WorkID, TechRef, Topic, Genre) %>% 
+        filter(!is.na(Topic)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Topic), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What topics are most common in works, by TechRef?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+        facet_wrap(~TechRef)
+```
+
+```{r}
+CreativeWorks %>% 
+        filter(TechRef %in% PopTech) %>% 
+        select(WorkID, TechRef, Topic, Genre) %>% 
+        filter(!is.na(Topic)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(TechRef), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What topics are most common in works, by TechRef?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+        facet_wrap(~Topic)
+```
+
+## Most common topics overall
+
+```{r}
+CreativeWorks %>% 
+        select(WorkID, Topic, Genre) %>% 
+        filter(!is.na(Topic)) %>% 
+        distinct() %>% 
+        ggplot(aes(x=fct_infreq(Topic), fill = Genre)) +
+        geom_bar() +
+               labs(fill="", 
+             title ="What topics are most common overall?",
+             subtitle = "",
+             caption = "Based on Rettberg et.al. 2022. http://doi.org/10.18710/2G0XKN",
+             y = "", 
+             x = "") +
+        theme_minimal() +
+        #theme(axis.text.y = element_text(size = 5)) +
+        theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) 
+```
+
+## What is typical of characters who are in situations involving drones?
+
+The following doesn't quite work. My goal is to get a file that says
+
+1.  holograms - Leia
+
+2.  holograms - Han Solo
+
+3.  holograms - C-3PO
+
+4.  augmented reality - John the Savage
+
+etc..
+
+Then do a visualisation comparing what traits characters who interact with drones have compared to the traits of characters who interact with other technologies.
+
+Perhaps network analysis is better for this?
+
+```{r}
+        
+ sitID_char <- Situations %>% 
+         select(SituationID, Character) %>% 
+         filter(!is.na(Character))
+
+ sitID_tech <- Situations %>% 
+         select(SituationID, Technology) %>% 
+         filter(!is.na(Technology))
+ 
+ merge(sitID_char, sitID_tech)
+        
+ 
+```
+
+How many situations have drones in them?
+
+```{r count_drone_situations}
+
+Situations %>% 
+        select(Situation, Technology) %>% 
+        filter(Technology == "Drones") %>% 
+        select(Situation) %>% 
+        distinct()
+
+
+
+```
+
+How many situations are there for each of the different technologies?
+
+```{r}
+
+Situations %>% 
+        select(Situation, Technology) %>% 
+        filter(!is.na(Technology)) %>% 
+        distinct() %>% 
+        ggplot(aes(x = fct_rev(fct_infreq(Technology)))) +
+        geom_bar() +
+                coord_flip()
+
+
+```
+
+# Character traits related to drones
+
+```{r}
+sitID_char <- Situations %>% 
+         select(SituationID, Character) %>% 
+         filter(!is.na(Character)) %>% 
+        distinct()
+
+sitID_tech <- Situations %>% 
+         select(SituationID, Technology) %>% 
+         filter(!is.na(Technology)) %>% 
+        distinct()
+ 
+SitCharTech <- merge(sitID_char, sitID_tech) 
+
+TechChar <- merge(SitCharTech, Characters)
+
+TechChar %>% 
+        filter(Technology %in% PopTech) %>% 
+        filter(Species == "Human" | Species == "Robot") %>% 
+        ggplot(aes(x=fct_infreq(Technology), fill=Gender)) +
+        geom_bar(position="fill") +
+        coord_flip() +
+        facet_wrap(~Species)
+
+```
+
+```{r Tech_and_Gender}
+TechChar %>% 
+        filter(Technology %in% PopTech) %>% 
+        ggplot(aes(x=fct_infreq(Technology), fill=Gender)) +
+        geom_bar(position="fill") +
+        coord_flip() 
+```
+
+```{r Tech_and_Race}
+TechChar %>% 
+    filter(Technology %in% PopTech) %>% 
+        ggplot(aes(x=fct_infreq(Technology), fill=RaceOrEthnicity)) +
+        geom_bar(position="fill") +
+        coord_flip() 
+```
+```{r}
+TechChar %>% 
+    filter(Technology %in% PopTech) %>% 
+        ggplot(aes(x=fct_infreq(Technology), fill=Age)) +
+        geom_bar(position="fill") +
+        coord_flip() 
+```
+```{r Sexuality}
+TechChar %>% 
+    filter(Technology %in% PopTech) %>% 
+        ggplot(aes(x=fct_infreq(Technology), fill=Sexuality)) +
+        geom_bar(position="fill") +
+        coord_flip() 
+```
+
+## Character traits drones vs everything else
+
+```{r}
+TechChar %>% 
+    filter(Technology %in% PopTech) %>% 
+        mutate(DronesOrNot = case_when(Technology == "Drones" ~ "Drones",
+                                     TRUE ~ "Other machine vision")) %>% 
+        ggplot(aes(x=fct_infreq(Sexuality) y = Gender, fill = DronesOrNot)) +
+        geom_col() +
+        coord_flip() 
+```
+
+
+# Network analysis
+
+```{r make_network}
+
+suppressMessages(library(RColorBrewer))
+suppressMessages(library(igraph))
+suppressMessages(library(multiplex))
+library(ggraph)
+library(graphlayouts)
+
+nodes_chars <- Characters %>% 
+        select(Title = Character, Species, Gender, 
+               Race = RaceOrEthnicity, Age, Sexuality) %>% 
+        add_column(NodeType = "Character")
+
+# To make the node table for technologies we need to return to Situations.
+nodes_tech <- Situations %>% 
+        select(Title = Technology) %>% 
+        filter(!is.na(Title)) %>% 
+        distinct() %>% 
+        add_column(NodeType = "Tech", 
+                   Species = NA, 
+                   Gender = NA, 
+                   Race = NA, 
+                   Age = NA, 
+                   Sexuality = NA)
+
+nodes <- rbind(nodes_chars, nodes_tech)
+
+
+
+# Create edge table that links a character and a technology when they are in the same 
+# situation by making two dataframes, one with just SituationIDs and characters and one
+# with just SituationIDs and Technologies, then merge them so you get Characters and 
+# Techs in the same row. 
+
+sitID_char <- Situations %>% 
+         select(SituationID, Character) %>% 
+         filter(!is.na(Character)) %>% 
+        distinct()
+
+sitID_tech <- Situations %>% 
+         select(SituationID, Technology) %>% 
+         filter(!is.na(Technology)) %>% 
+        distinct()
+ 
+temp <- merge(sitID_char, sitID_tech) 
+
+edges <- temp %>% 
+        select(From = Technology, 
+               To = Character,
+               SituationID) %>% 
+        add_column(EdgeType = "In_same_situation")
+
+# set the seed, create a graph object from the dataframe object
+set.seed(123)
+
+net <- graph_from_data_frame(d=edges, vertices=nodes, directed=T) 
+
+# Plotting this is a mess. Trying something different.
+
+## Add the "type" attribute to the network.
+V(net)$type <- bipartite_mapping(net)$type
+
+bipartite_matrix <- as_incidence_matrix(net)
+head(bipartite_matrix)
+
+```
+
+```{r}
+# ggraph(net, layout="stress") +
+#        geom_edge_fan(color="gray50", width=0.2, alpha=0.5) +
+#        geom_node_point(color="orange", size=degree(net)*0.2) +
+#        ggtitle("Bipartite Character/Verb network - only verbs are labelled") +
+#        geom_node_text(aes(label = label), color="black", repel = T) +
+#        theme_void()
+```
